@@ -9,6 +9,7 @@ This guide walks through setting up Apple's container tool and using Deeclaud to
 - [OAuth Token Setup](#oauth-token-setup)
 - [Building the Container Image](#building-the-container-image)
 - [Running Claude Code](#running-claude-code)
+  - [Managing Worktrees](#managing-worktrees)
 - [Creating Custom Variants](#creating-custom-variants)
 - [Troubleshooting](#troubleshooting)
 
@@ -179,11 +180,12 @@ security add-generic-password \
 ```
 
 ### Verify Token
-
+You can verify that the token was saved correctly by running the same script `deeclaud.sh` uses:
 ```bash
 ./get-claude-token.sh
-# Should output your token (or first 15 chars when run via deeclaud.sh)
+# Should output your token (but not when run via deeclaud.sh)
 ```
+You'll want to close or clear that terminal after running this.
 
 ---
 
@@ -298,6 +300,43 @@ You can run multiple containers for different repos/branches:
 ./deeclaud.sh ~/Projects/app-b feature/test
 ```
 
+### Managing Worktrees
+
+Deeclaud creates git worktrees for each branch you work on. These persist after the container exits so you can review changes.
+
+**List all worktrees** for a repository:
+
+```bash
+git -C ~/Projects/my-app worktree list
+```
+
+Example output:
+```
+/Users/you/Projects/my-app           abc1234 [main]
+/Users/you/Projects/my-app-wt-dev    def5678 [dev]
+/Users/you/Projects/my-app-wt-fix    789abcd [feature/fix]
+```
+
+**Remove a worktree** when you're done with it:
+
+```bash
+git -C ~/Projects/my-app worktree remove ~/Projects/my-app-wt-dev
+```
+
+If the worktree has uncommitted changes, git will refuse. Use `--force` to remove anyway:
+
+```bash
+git -C ~/Projects/my-app worktree remove --force ~/Projects/my-app-wt-dev
+```
+
+**Clean up stale worktrees** (if you manually deleted a worktree directory):
+
+```bash
+git -C ~/Projects/my-app worktree prune
+```
+
+Using `git worktree remove` is preferred over `rm -rf` because it properly updates git's internal tracking, keeping tools like GitHub Desktop and `gh` in sync.
+
 ---
 
 ## Creating Custom Variants
@@ -358,7 +397,7 @@ container system stop
 If that hangs, force kill the processes:
 
 ```bash
-ps ax -o pid,comm | grep Virtualization
+ps ax -o "pid,comm" | grep Virtualization
 # Note the PID, then:
 kill -9 <pid>
 
@@ -488,4 +527,4 @@ container system status
 ## Further Reading
 
 - [Apple container documentation](https://github.com/apple/container/tree/main/docs)
-- [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code)
+- [Claude Code documentation](https://code.claude.com/docs/en/overview)

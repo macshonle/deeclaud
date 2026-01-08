@@ -25,11 +25,11 @@ Claude Code's `--dangerously-skip-permissions` flag is powerful but risky on you
 
 ### 1. Install Apple container
 
-```bash
-# Download container-installer-signed.pkg from:
-# https://github.com/apple/container/releases
+Download `container-installer-signed.pkg` from:
+https://github.com/apple/container/releases.
 
-# After installing:
+After installing, start it:
+```bash
 container system start
 ```
 
@@ -39,7 +39,7 @@ container system start
 security add-generic-password \
   -s "claude-code-container" \
   -a "oauth-token" \
-  -w "YOUR_OAUTH_TOKEN_HERE"
+  -w "<YOUR_OAUTH_TOKEN_HERE>"
 ```
 
 ### 3. Build the container image
@@ -54,9 +54,9 @@ security add-generic-password \
 ./deeclaud.sh /path/to/your/repo branch-name
 ```
 
-That's it! Claude Code launches in an isolated container with full permissions.
+Now what? Well, Claude Code launches in an isolated container with full permissions.
 
-**Important**: Deeclaud uses **git worktrees** to create an isolated copy of your branch. Your original repository remains untouched on the host—you can continue editing it with your favorite tools while Claude works in the container. Changes Claude makes appear in the worktree directory (`<repo>-wt-<branch>`), which you can review, commit, or discard from your host machine.
+**Important**: Deeclaud uses **git worktrees** to create an isolated copy of your branch. Your original repository remains untouched on the host -- you can continue editing it with your favorite tools while Claude works in the container. The changes Claude makes will appear in the worktree directory (`<repo>-wt-<branch>`), which you can review, commit, or discard from your host machine.
 
 ## Usage
 
