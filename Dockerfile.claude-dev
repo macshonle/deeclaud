@@ -1,0 +1,108 @@
+# ============================
+# Stage 1 — Base tools
+# ============================
+FROM docker.io/library/ubuntu:22.04 AS base
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    ripgrep \
+    ca-certificates \
+    unzip \
+    tar \
+    xz-utils \
+    findutils \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# ============================
+# Stage 2 — Node.js (Ubuntu repo, stable)
+# ============================
+FROM base AS node
+
+RUN apt-get update && apt-get install -y nodejs npm \
+    && rm -rf /var/lib/apt/lists/*
+
+
+# ============================
+# Stage 3 — Claude installer (debug-capable)
+# ============================
+FROM node AS claude-install
+
+# Build argument to control verbosity
+ARG DEBUG=0
+ENV DEBUG=${DEBUG}
+
+# Fetch installer
+ADD https://claude.ai/install.sh /tmp/install.sh
+RUN chmod +x /tmp/install.sh
+
+# Run installer with optional debug instrumentation
+RUN bash -c '\
+    set -euo pipefail; \
+    \
+    if [ "$DEBUG" = "1" ]; then \
+        echo "=== DEBUG MODE ENABLED ==="; \
+        echo "=== ENVIRONMENT ==="; env; \
+        echo "=== UNAME ==="; uname -a; \
+        echo "=== INSTALLER CONTENTS (first 200 lines) ==="; sed -n "1,200p" /tmp/install.sh; \
+        echo "=== STARTING INSTALLER WITH TRACE ==="; \
+        bash -x /tmp/install.sh & \
+        pid=$!; \
+        while kill -0 "$pid" 2>/dev/null; do \
+            echo "heartbeat: $(date)"; \
+            sleep 20; \
+        done; \
+        wait "$pid" || echo "Installer exited with non-zero code: $?"; \
+        echo "=== SEARCHING FOR CLAUDE ARTIFACTS ==="; \
+        find / -maxdepth 6 -iname "*claude*" 2>/dev/null || true; \
+    else \
+        echo "=== Running installer (quiet mode) ==="; \
+        bash /tmp/install.sh; \
+    fi; \
+'
+
+
+# ============================
+# Stage 4 — Final runtime image
+# ============================
+FROM node AS final
+
+# Create non-root user for Claude Code
+ARG USER_NAME=claude
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+RUN apt-get update && apt-get install -y sudo \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid $USER_GID $USER_NAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USER_NAME \
+    && echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Copy Claude installation to a system location (won't be hidden by home mount)
+COPY --from=claude-install /root/.local/ /opt/claude/
+# Fix permissions and repair any symlinks that point to old /root/.local paths
+RUN chmod -R a+rX /opt/claude \
+    && for link in /opt/claude/bin/*; do \
+         if [ -L "$link" ]; then \
+           target=$(readlink "$link"); \
+           case "$target" in \
+             /root/.local/*) \
+               new_target=$(echo "$target" | sed 's|^/root/.local|/opt/claude|'); \
+               ln -sf "$new_target" "$link"; \
+               echo "Fixed symlink: $link -> $new_target"; \
+               ;; \
+           esac; \
+         fi; \
+       done \
+    && find /opt/claude -type f -executable -exec chmod a+x {} \; \
+    && find /opt/claude -type f \( -name "*.js" -path "*/bin/*" \) -exec chmod a+x {} \;
+
+# Switch to non-root user
+USER $USER_NAME
+WORKDIR /home/$USER_NAME
+
+# Ensure Claude is on PATH
+ENV PATH="/opt/claude/bin:${PATH}"
+
+CMD ["/bin/bash"]
