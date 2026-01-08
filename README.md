@@ -18,6 +18,8 @@ Claude Code's `--dangerously-skip-permissions` flag is powerful but risky on you
 - Apple Silicon Mac (M1/M2/M3/M4)
 - [Apple container tool](https://github.com/apple/container/releases) (v0.7.1+)
 - Claude Code OAuth token (from your Claude subscription)
+- `git` command-line tool
+- `python3` (optional, for `./manage-container.sh check` metadata display)
 
 ## Quick Start
 
@@ -70,14 +72,23 @@ That's it! Claude Code launches in an isolated container with full permissions.
 
 ## Variant Dockerfiles
 
-The default `Dockerfile.claude-dev` provides a general-purpose environment. Create custom variants for specific needs:
+The default `Dockerfile.claude-dev` provides a general-purpose environment. You can create custom variants for specific needs by copying and modifying the default Dockerfile.
+
+**Included:**
 
 | Variant | Use Case |
 |---------|----------|
 | `Dockerfile.claude-dev` | Default: Ubuntu 22.04, Node.js, Git, common tools |
+
+**Example variants you might create:**
+
+| Variant | Use Case |
+|---------|----------|
 | `Dockerfile.node-alpine` | Minimal Node.js environment |
 | `Dockerfile.rustup-ubuntu` | Rust development |
 | `Dockerfile.headless-chromium` | Browser automation, E2E testing |
+
+See [GUIDE.md](GUIDE.md#creating-custom-variants) for instructions on creating custom variants.
 
 ## Management Commands
 
@@ -93,14 +104,41 @@ The default `Dockerfile.claude-dev` provides a general-purpose environment. Crea
 
 # Remove image and containers
 ./manage-container.sh teardown
+
+# Show help
+./manage-container.sh --help
+./deeclaud.sh --help
+```
+
+## Configuration
+
+Set these environment variables to customize behavior:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEECLAUD_MEMORY` | `4G` | Container memory limit (e.g., `8G`, `2G`) |
+
+Example:
+```bash
+DEECLAUD_MEMORY=8G ./deeclaud.sh ~/Projects/big-app main
 ```
 
 ## How It Works
 
-1. **Git worktree**: Creates an isolated checkout at `<repo>-wt-<branch>` next to your original repo
+1. **Git worktree**: Creates an isolated checkout at `<repo>-wt-<branch>` next to your original repo. If the branch doesn't exist, it's created automatically.
 2. **Container launch**: Starts a GNU/Linux VM with Claude Code pre-installed
 3. **Persistent home**: `~/Containers/<variant>-<repo>-home` survives container restarts
 4. **OAuth injection**: Token passed via environment variable, not filesystem
+
+### Container Environment Variables
+
+Inside the container, these environment variables are set:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Your token | Authentication for Claude Code |
+| `HOME` | `/home/claude` | Container user's home directory |
+| `PATH` | Includes `/opt/claude/bin` | Claude binaries available globally |
 
 ### What Gets Mounted
 
@@ -117,10 +155,12 @@ See [GUIDE.md](GUIDE.md) for detailed architecture and troubleshooting.
 
 ## Security Notes
 
-- Claude has `sudo` access *inside* the container (for apt-get, etc.)
+- Claude has `sudo` access *inside* the container (for apt-get, npm global installs, etc.)
 - The container cannot access your macOS filesystem (except mounted volumes)
 - SSH keys and GitHub credentials are mounted read-only
 - OAuth token exists only in memory/environment, never on disk
+
+**Token visibility**: The OAuth token is passed as an environment variable (`CLAUDE_CODE_OAUTH_TOKEN`), which means it's visible to all processes running inside the container via the `env` command or `/proc/*/environ`. This is a tradeoff for simplicity—the token never touches the filesystem, but any code running in the container can read it. Since the container is isolated and disposable, this is generally acceptable for development use.
 
 ## License
 

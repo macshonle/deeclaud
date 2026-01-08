@@ -120,6 +120,26 @@ container system property set dns.domain test
 
 **OAuth via Environment**: Your Claude token is passed as an environment variable, never written to disk inside the container.
 
+**Note on token visibility**: The token is visible to all processes inside the container via the `env` command or `/proc/*/environ`. This is a tradeoff for simplicity—since the container is isolated and disposable, this is generally acceptable for development use.
+
+### Container Environment Variables
+
+Inside the container, these environment variables are set:
+
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `CLAUDE_CODE_OAUTH_TOKEN` | Your token | Authentication for Claude Code |
+| `HOME` | `/home/claude` | Container user's home directory |
+| `PATH` | Includes `/opt/claude/bin` | Claude binaries available globally |
+
+### Configuration
+
+Set these environment variables on the host to customize behavior:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEECLAUD_MEMORY` | `4G` | Container memory limit (e.g., `8G`, `2G`) |
+
 ---
 
 ## OAuth Token Setup
@@ -230,9 +250,23 @@ Shows image metadata including build timestamp.
 # Work on a feature branch (creates it if needed)
 ./deeclaud.sh ~/Projects/my-app feature/new-api
 
-# Use a custom variant
-./deeclaud.sh ~/Projects/my-app main Dockerfile.node-alpine
+# Use a custom variant (you need to create and build this first)
+./deeclaud.sh ~/Projects/my-app main Dockerfile.my-variant
+
+# Use more memory for large projects
+DEECLAUD_MEMORY=8G ./deeclaud.sh ~/Projects/big-app main
 ```
+
+### Automatic Branch Creation
+
+If you specify a branch that doesn't exist, Deeclaud creates it automatically:
+
+```bash
+# This creates the 'feature/new-feature' branch if it doesn't exist
+./deeclaud.sh ~/Projects/my-app feature/new-feature
+```
+
+The new branch is created from the current HEAD of the repository.
 
 ### What Happens
 

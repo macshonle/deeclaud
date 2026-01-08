@@ -23,8 +23,26 @@ trap cleanup_terminal EXIT INT TERM
 CMD=$(basename "$0")
 
 usage() {
-  echo "Usage: $CMD <repo-dir> <branch> [variant]"
-  exit 1
+  cat <<EOF
+Usage: $CMD <repo-dir> <branch> [variant]
+
+Run Claude Code in a sandboxed container on the specified repository and branch.
+
+Arguments:
+  repo-dir    Path to git repository
+  branch      Branch name (created if it doesn't exist)
+  variant     Dockerfile variant (default: Dockerfile.claude-dev)
+
+Environment:
+  DEECLAUD_MEMORY   Container memory limit (default: 4G)
+
+Examples:
+  $CMD ~/Projects/my-app main
+  $CMD ~/Projects/my-app feature/new-feature
+  $CMD ~/Projects/my-app main Dockerfile.claude-dev
+  DEECLAUD_MEMORY=8G $CMD ~/Projects/big-app main
+EOF
+  exit 2
 }
 
 err() {
@@ -32,11 +50,21 @@ err() {
   exit 1
 }
 
+# Handle --help anywhere in args
+for arg in "$@"; do
+  case "$arg" in
+    --help|-h) usage ;;
+  esac
+done
+
 if [ $# -lt 2 ]; then usage; fi
 
 REPO_DIR="$1"
 BRANCH="$2"
 VARIANT="${3:-Dockerfile.claude-dev}"
+
+# Memory limit for container (default: 4G)
+MEMORY_LIMIT="${DEECLAUD_MEMORY:-4G}"
 
 for cmd in git container; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -69,7 +97,7 @@ mkdir -p "$CONTAINER_HOME"
 BASE_DIR="$(dirname "$REPO_DIR")"
 WORKTREE_DIR="$BASE_DIR/${REPO_NAME}-wt-${BRANCH_SAFE}"
 
-if ! git -C "$REPO_DIR" worktree list | grep -q "$WORKTREE_DIR"; then
+if ! git -C "$REPO_DIR" worktree list --porcelain | grep -q "^worktree $WORKTREE_DIR$"; then
   echo "Creating worktree at $WORKTREE_DIR"
   if git -C "$REPO_DIR" rev-parse --verify "$BRANCH" >/dev/null 2>&1; then
     git -C "$REPO_DIR" worktree add "$WORKTREE_DIR" "$BRANCH"
@@ -90,9 +118,11 @@ if ! container image list | grep -q "^${IMAGE_NAME}"; then
 fi
 
 # Retrieve OAuth token from keychain
-echo "Retrieving OAuth token..."
-CLAUDE_CODE_OAUTH_TOKEN=$("$SCRIPT_DIR/get-claude-token.sh") || err "Failed to retrieve OAuth token"
-echo "Token retrieved (starts with: ${CLAUDE_CODE_OAUTH_TOKEN:0:15}...)"
+echo "Retrieving OAuth token from Keychain..."
+if ! CLAUDE_CODE_OAUTH_TOKEN=$("$SCRIPT_DIR/get-claude-token.sh" 2>&1); then
+  err "Failed to retrieve OAuth token: $CLAUDE_CODE_OAUTH_TOKEN"
+fi
+echo "OAuth token retrieved successfully."
 
 # Remove old container if exists
 INSPECT_OUTPUT=$(container inspect "$CONTAINER_NAME" 2>/dev/null)
@@ -122,8 +152,8 @@ CLAUDE_BIN="/opt/claude/bin/claude"
 SETUP_CMD="mkdir -p ~/.local/bin && ln -sf $CLAUDE_BIN ~/.local/bin/claude"
 RUN_CMD="$CLAUDE_BIN --dangerously-skip-permissions /workspace"
 
-echo "Launching container: $CONTAINER_NAME"
-container run --memory 4G -it --rm \
+echo "Launching container: $CONTAINER_NAME (memory: $MEMORY_LIMIT)"
+container run --memory "$MEMORY_LIMIT" -it --rm \
   --name "$CONTAINER_NAME" \
   --workdir /workspace \
   --env "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN" \

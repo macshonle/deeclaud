@@ -12,38 +12,67 @@ usage() {
   cat <<EOF
 Usage:
   $CMD [--debug] setup [DockerfileName]
-  $CMD check [DockerfileName]
+  $CMD [--debug] check [DockerfileName]
   $CMD teardown [DockerfileName]
 
 Options:
   --debug    Use --no-cache --progress=plain when building
+  --help     Show this help message
 
 DockerfileName defaults to Dockerfile.claude-dev if not specified.
+
+Environment:
+  DEECLAUD_MEMORY   Container memory limit for builds (default: 4G)
 
 Examples:
   $CMD setup
   $CMD --debug setup
+  $CMD setup --debug                      # --debug can come after action
   $CMD setup Dockerfile.claude-dev-python312
   $CMD check
-  $CMD check Dockerfile.claude-dev-python312
   $CMD teardown
+  DEECLAUD_MEMORY=8G $CMD setup
 EOF
-  exit 1
+  exit 2
 }
 
 if [ $# -lt 1 ]; then usage; fi
 
-# Parse --debug flag
+# Parse flags (--debug and --help can appear anywhere)
 DEBUG_BUILD=false
-if [ "$1" = "--debug" ]; then
-  DEBUG_BUILD=true
-  shift
-fi
+ACTION=""
+VARIANT=""
 
-if [ $# -lt 1 ]; then usage; fi
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --debug)
+      DEBUG_BUILD=true
+      shift
+      ;;
+    --help|-h)
+      usage
+      ;;
+    setup|check|teardown)
+      ACTION="$1"
+      shift
+      ;;
+    Dockerfile.*)
+      # Dockerfile variant
+      VARIANT="$1"
+      shift
+      ;;
+    *)
+      # Unknown option
+      err "Unknown option: $1. Use --help for usage."
+      ;;
+  esac
+done
 
-ACTION="$1"
-VARIANT="${2:-Dockerfile.claude-dev}"
+if [ -z "$ACTION" ]; then usage; fi
+VARIANT="${VARIANT:-Dockerfile.claude-dev}"
+
+# Memory limit for container builds (default: 4G)
+MEMORY_LIMIT="${DEECLAUD_MEMORY:-4G}"
 
 # Resolve script directory
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -76,7 +105,9 @@ setup() {
 
   echo "Pulling Ubuntu base image..."
   BASE_IMAGE="ubuntu:22.04"
-  container image pull "docker.io/library/${BASE_IMAGE}"
+  if ! container image pull "docker.io/library/${BASE_IMAGE}"; then
+    err "Failed to pull base image. Check network connectivity and try again."
+  fi
 
   echo "Building image '$IMAGE_NAME' from $VARIANT..."
 
@@ -91,12 +122,12 @@ setup() {
   )
 
   if [ "$DEBUG_BUILD" = true ]; then
-    container build --memory 4G \
+    container build --memory "$MEMORY_LIMIT" \
       "${LABEL_ARGS[@]}" \
       --no-cache --progress=plain --build-arg DEBUG=1 \
       -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$SCRIPT_DIR"
   else
-    container build --memory 4G \
+    container build --memory "$MEMORY_LIMIT" \
       "${LABEL_ARGS[@]}" \
       --build-arg DEBUG=0 \
       -t "$IMAGE_NAME" -f "$DOCKERFILE_PATH" "$SCRIPT_DIR"
@@ -114,6 +145,10 @@ check() {
 
   # Display image metadata
   echo "Container image metadata:"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "  (python3 not found - metadata display unavailable)"
+    return 0
+  fi
   container image inspect "$IMAGE_NAME" 2>/dev/null | \
     python3 -c '
   import sys, json
@@ -135,13 +170,19 @@ teardown() {
   # Remove containers using this image
   for cid in $(container list --all | awk -v img="$IMAGE_NAME" '$2==img {print $1}'); do
     echo "Removing container $cid"
-    container rm "$cid"
+    if ! container rm "$cid" 2>/dev/null; then
+      echo "  Warning: Failed to remove container $cid (may already be removed)"
+    fi
   done
 
   # Remove image
   if check_image; then
     echo "Removing image $IMAGE_NAME"
-    container image rm "$IMAGE_NAME"
+    if ! container image rm "$IMAGE_NAME"; then
+      err "Failed to remove image '$IMAGE_NAME'. It may be in use by running containers."
+    fi
+  else
+    echo "Image '$IMAGE_NAME' not found (already removed or never built)"
   fi
 
   echo "Teardown complete."
